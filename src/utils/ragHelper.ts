@@ -1,11 +1,12 @@
 import { Pinecone } from '@pinecone-database/pinecone';
 import OpenAI from 'openai';
+import {Metadata_details} from "../../data/metadata";
 
 // Configuration constants
 const PINECONE_API_KEY = process.env.PINECONE_API_KEY || 'your_pinecone_key';
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || 'your_openai_key';
 const DIMENSION = 1024;
-const DEFAULT_INDEX = 'horizonblue';
+const DEFAULT_INDEX = 'alldocment';
 
 // Interface definitions
 interface RAGResponse {
@@ -17,10 +18,6 @@ interface RAGResponse {
         planName?: string;
     };
 }
-const AKNOWLEDGE = `AmeriHealth Platinum provides in-network coverage for various medical services but does not cover out-of-network care. Physician visits for injury or illness require a $10 copayment. Diagnostic tests include a $30 copay for X-rays and no charge for blood work. Imaging services, including CT/PET scans and MRIs, require a $60 copay per scan and prior authorization. Generic drugs cost $15 per fill for a 30-day supply and $30 for a 90-day supply, with prior authorization required for some medications. Outpatient surgery is covered at no charge but requires prior authorization for certain procedures. Emergency room visits have a $100 copayment. Pregnancy and childbirth services have no charge, with no cost-sharing for preventive services. Durable medical equipment requires 50% coinsurance, with prior authorization needed for selected items. For full details, visit AmeriHealth Platinum Member Services.`;
-const OHKNOwLEDGE = `UnitedHealthcare Oxford covers essential medical services with in-network cost-sharing but no out-of-network coverage. Physician visits for injury/illness require a $10 copayment. Diagnostic tests include a $60 copay for X-rays and no charge for blood work. Imaging (CT/PET/MRIs) costs $10 per scan. Generic drugs have a $5 copay for a 30-day supply and $10 for a 90-day supply, requiring prior authorization. Outpatient surgery requires a $500 copay per service. Emergency room visits cost $100 per visit, regardless of network status. Pregnancy and childbirth professional services have no charge, with no cost-sharing for preventive services. Durable medical equipment is covered at no charge, but preauthorization is required for items over $500. For full details, visit UnitedHealthcare Oxford Member Services.`;
-const HKNOWLEDGE = `Horizon blue covers various medical services with different cost-sharing structures. Physician visits for injury/illness require a $20 copayment in-network and 30% coinsurance out-of-network. Diagnostic tests like X-rays and blood work are free in-network but have 30% coinsurance out-of-network. Imaging (CT/PET/MRIs) is also free in-network with the same out-of-network coinsurance. Generic drugs have a $10 copay for a 30-day supply and $20 for a 90-day supply, requiring prior authorization. Outpatient surgery has a $150 copay in-network and 30% coinsurance out-of-network, with prior review for spine-related procedures. Emergency room care has a $100 copay per visit, regardless of network status, with no deductible. Pregnancy and childbirth professional services have a $20 copay in-network and 30% coinsurance out-of-network, with no cost-sharing for preventive services. Durable medical equipment requires 50% coinsurance both in and out of network, with a 50% penalty for non-compliance. For full details, visit Horizon Blue Member Services.
-`;
 
 // Plan configuration
 interface PlanConfig {
@@ -30,15 +27,15 @@ interface PlanConfig {
 }
 
 const PLAN_CONFIGS: { [key: string]: PlanConfig } = {
-    'horizonblue': {
-        indexName: 'horizonblue',
+    'alldocment': {
+        indexName: 'alldocment',
         displayName: 'Horizon Blue Cross Blue Shield',
         description: 'Comprehensive healthcare coverage by Horizon Blue Cross Blue Shield'
     }
 };
 
 // Initialize Pinecone client
-const pinecone = new Pinecone({ apiKey: PINECONE_API_KEY});
+const pinecone = new Pinecone({ apiKey: PINECONE_API_KEY });
 
 // Initialize OpenAI
 const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
@@ -102,20 +99,20 @@ async function retrieveSingleBestContext(queryEmbedding: number[], index: any): 
 /**
  * Generates a response using OpenAI GPT-4o-mini
  */
-async function generateResponse(query: string, context: string, planConfig: PlanConfig): Promise<string> {
+async function generateResponse(query: string, context: string, planConfig: PlanConfig, selectedPlan: string): Promise<string> {
     try {
         const prompt = `
-        You are an expert assistant answering questions about ${planConfig.displayName}. 
-        Use ONLY the given context to answer the question concisely.
-        IF any context not present, use this too ${HKNOWLEDGE}
+You are an expert assistant answering questions about ${selectedPlan} Healthcare plan. 
+Use ONLY the given context to answer the question concisely 
+IF any context not present, use this too ${Metadata_details.INSURANCE_DETAILS_meta}
         
-        Context:
-        ${context}
+Context:
+${context}
         
-        Question: ${query}
+Question: ${query}
         
-        Answer:
-        `;
+Answer:
+`;
 
         const response = await openai.chat.completions.create({
             model: "gpt-4o-mini",
@@ -134,7 +131,7 @@ async function generateResponse(query: string, context: string, planConfig: Plan
 /**
  * Main RAG system query function
  */
-export async function queryRAGSystem(query: string, planName?: string): Promise<RAGResponse> {
+export async function queryRAGSystem(query: string, planName?: string, selectedPlan?: string): Promise<RAGResponse> {
     try {
         if (!query.trim()) {
             throw new Error("Query cannot be empty");
@@ -148,12 +145,12 @@ export async function queryRAGSystem(query: string, planName?: string): Promise<
         if (!context) {
             return {
                 type: 'ai_response',
-                message: `I don't have specific information about that aspect of ${planConfig.displayName}.`,
+                message: `I don't have specific information about that aspect of it.`,
                 metadata: { confidence: 0, planName: planConfig.displayName }
             };
         }
 
-        const response = await generateResponse(query, context, planConfig);
+        const response = await generateResponse(query, context, planConfig, selectedPlan || planConfig.displayName);
         return {
             type: 'ai_response',
             message: response,
