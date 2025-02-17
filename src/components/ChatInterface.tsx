@@ -63,7 +63,7 @@ const CURRENT_PLAN: InsurancePlan = {
             "outOfNetwork": "$75 Copayment (Deductible does not apply)"
         }
     ]
-    
+
 };
 
 const AVAILABLE_PLANS: InsurancePlan[] = [
@@ -98,6 +98,8 @@ const ChatInterface = () => {
     const [selectedPlan, setSelectedPlan] = useState<string>('');
     const [userId] = useState(() => Math.random().toString(36).substring(7));
     const [isCurrentPlanMode, setIsCurrentPlanMode] = useState(false);
+    const [awaitingLifeEvent, setAwaitingLifeEvent] = useState(false);
+    const [planRecommendationShown, setPlanRecommendationShown] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -138,6 +140,7 @@ const ChatInterface = () => {
         setMessages(prev => [...prev, { type: 'user', content: userMessage }]);
 
         try {
+            // Initial flow - handling current plan mode
             if (userMessage.toLowerCase() === 'no' && !isCurrentPlanMode) {
                 setIsCurrentPlanMode(true);
                 try {
@@ -154,6 +157,7 @@ const ChatInterface = () => {
                     }]);
                 }
             }
+            // Current plan mode - use RAG
             else if (isCurrentPlanMode) {
                 try {
                     const data = await handleRagApiCall(userMessage);
@@ -169,23 +173,52 @@ const ChatInterface = () => {
                     }]);
                 }
             }
-            else if (userMessage.toLowerCase() === 'yes' || userMessage.toLowerCase() === "modify" && !selectedPlan) {
+            // Initial "yes" to update plan
+            else if ((userMessage.toLowerCase() === 'yes' || userMessage.toLowerCase() === "modify") && !selectedPlan && !planRecommendationShown) {
+                setAwaitingLifeEvent(true);
                 setMessages(prev => [...prev, {
                     type: 'bot',
                     content: `Are there any life events that require an update in your plan and coverages?`,
                 }]);
             }
-            else if ( userMessage.toLowerCase().includes('wife')) {
-                setMessages(prev => [...prev, {
-                    type: 'bot',
-                    content: "Here are our recommended plans with maternity coverage:",
-                    recommendations: AVAILABLE_PLANS.sort((a, b) => {
-                        const aMaternity = a.summary.includes("maternity") ? 1 : 0;
-                        const bMaternity = b.summary.includes("maternity") ? 1 : 0;
-                        return bMaternity - aMaternity;
-                    })
-                }]);
+            // Handle life event response and show plan recommendations only once
+            else if (awaitingLifeEvent && !planRecommendationShown) {
+                // Keywords for plan recommendation triggers
+                const planRequestKeywords = [
+                    'recommend', 'suggestion', 'best', 'plan', 'coverage',
+                    'family', 'married', 'marriage', 'spouse', 'wife', 'husband',
+                    'child', 'baby', 'pregnant', 'maternity', 'moving', 'relocate',
+                    'health', 'medical', 'which', 'what', 'need', 'looking', 'want'
+                ];
+
+                const containsPlanRequest = planRequestKeywords.some(keyword =>
+                    userMessage.toLowerCase().includes(keyword)
+                );
+
+                if (containsPlanRequest || userMessage.length > 0) { // Consider any response valid for recommendation
+                    let recommendationMessage = "Based on your needs, here are our recommended plans:";
+
+                    // Special handling for family/maternity related requests
+                    if (userMessage.toLowerCase().match(/(?:wife|baby|child|pregnant|maternity|family)/)) {
+                        recommendationMessage = "Here are our recommended plans with family and maternity coverage:";
+                        // Sort plans to prioritize those with maternity coverage
+                        AVAILABLE_PLANS.sort((a, b) => {
+                            const aMaternity = a.summary.toLowerCase().includes("maternity") ? 1 : 0;
+                            const bMaternity = b.summary.toLowerCase().includes("maternity") ? 1 : 0;
+                            return bMaternity - aMaternity;
+                        });
+                    }
+
+                    setMessages(prev => [...prev, {
+                        type: 'bot',
+                        content: recommendationMessage,
+                        recommendations: AVAILABLE_PLANS
+                    }]);
+                    setAwaitingLifeEvent(false);
+                    setPlanRecommendationShown(true); // Mark that recommendations have been shown
+                }
             }
+            // Handle plan selection
             else if (!selectedPlan && AVAILABLE_PLANS.some(plan => userMessage.includes(plan.planName))) {
                 const plan = AVAILABLE_PLANS.find(p => userMessage.includes(p.planName));
                 if (plan) {
@@ -197,7 +230,8 @@ const ChatInterface = () => {
                     }]);
                 }
             }
-            else if (selectedPlan) {
+            // After plan selection - all queries go to RAG
+            else if (selectedPlan || planRecommendationShown) {
                 try {
                     const data = await handleRagApiCall(userMessage);
                     setMessages(prev => [...prev, {
